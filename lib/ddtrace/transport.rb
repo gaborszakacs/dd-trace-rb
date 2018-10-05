@@ -3,6 +3,7 @@ require 'net/http'
 
 require 'ddtrace/encoding'
 require 'ddtrace/version'
+require 'ddtrace/metrics'
 
 module Datadog
   # Transport class that handles the spans delivery to the
@@ -10,6 +11,8 @@ module Datadog
   # so that the Transport is thread-safe.
   # rubocop:disable Metrics/ClassLength
   class HTTPTransport
+    include Datadog::Metrics
+    
     attr_accessor :hostname, :port
     attr_reader :traces_endpoint, :services_endpoint
 
@@ -19,6 +22,11 @@ module Datadog
     # header containing the number of traces in a payload
     TRACE_COUNT_HEADER = 'X-Datadog-Trace-Count'.freeze
     RUBY_INTERPRETER = RUBY_VERSION > '1.9' ? RUBY_ENGINE + '-' + RUBY_PLATFORM : 'ruby-' + RUBY_PLATFORM
+
+    METRIC_POST_CLIENT_ERROR = 'datadog.tracer.transport.http.post.client_error'.freeze
+    METRIC_POST_INTERNAL_ERROR = 'datadog.tracer.transport.http.post.internal_error'.freeze
+    METRIC_POST_SERVER_ERROR = 'datadog.tracer.transport.http.post.server_error'.freeze
+    METRIC_POST_SUCCESS = 'datadog.tracer.transport.http.post.success'.freeze
 
     API = {
       V4 = 'v0.4'.freeze => {
@@ -172,20 +180,24 @@ module Datadog
       if success?(status_code)
         Datadog::Tracer.log.debug('Payload correctly sent to the trace agent.')
         @mutex.synchronize { @count_consecutive_errors = 0 }
-        @mutex.synchronize { @count_success += 1 }
+        #@mutex.synchronize { @count_success += 1 }
+        statsd.increment(METRIC_POST_SUCCESS) unless statsd.nil?
       elsif downgrade?(status_code)
         Datadog::Tracer.log.debug("calling the endpoint but received #{status_code}; downgrading the API")
       elsif client_error?(status_code)
         log_error_once("Client error: #{response.message}")
-        @mutex.synchronize { @count_client_error += 1 }
+        # @mutex.synchronize { @count_client_error += 1 }
+        statsd.increment(METRIC_POST_CLIENT_ERROR) unless statsd.nil?
       elsif server_error?(status_code)
         log_error_once("Server error: #{response.message}")
+        statsd.increment(METRIC_POST_SERVER_ERROR) unless statsd.nil?
       end
 
       status_code
     rescue StandardError => e
       log_error_once(e.message)
-      @mutex.synchronize { @count_internal_error += 1 }
+      # @mutex.synchronize { @count_internal_error += 1 }
+      statsd.increment(METRIC_POST_INTERNAL_ERROR) unless statsd.nil?
 
       500
     end

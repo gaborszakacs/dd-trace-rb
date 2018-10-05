@@ -1,10 +1,13 @@
 require 'ddtrace/transport'
 require 'ddtrace/encoding'
 require 'ddtrace/workers'
+require 'ddtrace/metrics'
 
 module Datadog
   # Traces and services writer that periodically sends data to the trace-agent
   class Writer
+    include Datadog::Metrics
+
     attr_reader :transport, :worker, :priority_sampler
 
     HOSTNAME = '127.0.0.1'.freeze
